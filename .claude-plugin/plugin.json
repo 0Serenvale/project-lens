@@ -1,0 +1,25 @@
+{
+  "name": "project-lens",
+  "version": "1.0.0",
+  "description": "Per-feature codebase documentation. Uses a cheap OpenRouter LLM to scan your project and generate structured feature docs. Injects relevant context before every file edit so Claude never skims unknown code.",
+  "author": {
+    "name": "Serenvale",
+    "url": "https://github.com/0Serenvale"
+  },
+  "repository": "https://github.com/0Serenvale/project-lens",
+  "license": "MIT",
+  "keywords": ["documentation", "context", "codebase", "openrouter", "feature-docs"],
+  "skills": "./skills/",
+  "hooks": "./hooks/hooks.json",
+  "userConfig": {
+    "openrouter_key": {
+      "description": "Your OpenRouter API key (get one at openrouter.ai). Used to run cheap LLM scans on your codebase.",
+      "sensitive": true
+    },
+    "model": {
+      "description": "OpenRouter model to use for scanning (default: deepseek/deepseek-chat). Cheap options: google/gemma-3-27b-it:free, deepseek/deepseek-chat",
+      "sensitive": false,
+      "default": "deepseek/deepseek-chat"
+    }
+  }
+}
