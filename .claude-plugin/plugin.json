@@ -13,11 +13,15 @@
   "hooks": "./hooks/hooks.json",
   "userConfig": {
     "openrouter_key": {
+      "title": "OpenRouter API Key",
+      "type": "string",
       "description": "Your OpenRouter API key (get one at openrouter.ai). Used to run cheap LLM scans on your codebase.",
       "sensitive": true
     },
     "model": {
-      "description": "OpenRouter model to use for scanning (default: deepseek/deepseek-chat). Cheap options: google/gemma-3-27b-it:free, deepseek/deepseek-chat",
+      "title": "OpenRouter Model",
+      "type": "string",
+      "description": "OpenRouter model for scanning. Free options: google/gemma-3-27b-it:free, qwen/qwen-2.5-72b-instruct:free. Default: deepseek/deepseek-chat",
       "sensitive": false,
       "default": "deepseek/deepseek-chat"
     }
