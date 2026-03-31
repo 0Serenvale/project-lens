@@ -26,8 +26,16 @@ if [[ -z "$API_KEY" ]]; then
   exit 1
 fi
 
-LENS_DIR="$PROJECT_ROOT/.lens"
-mkdir -p "$LENS_DIR/features"
+# Write to RAM if available, disk as fallback
+# session-end.sh will sync RAM → disk at end of session
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
+if [[ -d "/dev/shm" || -d "$LENS_RAM" ]]; then
+  mkdir -p "$LENS_RAM/features"
+  LENS_DIR="$LENS_RAM"
+else
+  mkdir -p "$LENS_DISK/features"
+  LENS_DIR="$LENS_DISK"
+fi
 
 RELATIVE_PATH="${FILE_PATH#$PROJECT_ROOT/}"
 FILE_CONTENT=$(cat "$FILE_PATH")

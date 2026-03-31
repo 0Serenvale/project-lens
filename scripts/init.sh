@@ -19,7 +19,19 @@ if [[ -z "$API_KEY" ]]; then
 fi
 
 echo "[PROJECT LENS] Initializing project at $PROJECT_ROOT..."
-mkdir -p "$LENS_DIR/features"
+
+# Load RAM paths
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
+
+# Write to RAM during init — session-end.sh syncs to disk
+if [[ -d "/dev/shm" ]]; then
+  mkdir -p "$LENS_RAM/features"
+  LENS_DIR="$LENS_RAM"
+  echo "[PROJECT LENS] Writing to RAM ($LENS_RAM) — will sync to disk at session end."
+else
+  mkdir -p "$LENS_DISK/features"
+  LENS_DIR="$LENS_DISK"
+fi
 
 # Find all code files (skip node_modules, .git, dist, build, .next, generated)
 CODE_FILES=$(find "$PROJECT_ROOT" -type f \
@@ -155,10 +167,13 @@ EOF
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "[PROJECT LENS] Init complete."
+echo "  RAM      : $LENS_DIR"
+echo "  Disk     : $LENS_DISK (synced at session end)"
 echo "  Overview : $LENS_DIR/overview.md"
 echo "  Features : $LENS_DIR/features/ ($COUNT docs)"
 echo "  Index    : $LENS_DIR/index.md"
 echo ""
+echo "  Docs live in RAM this session. Persisted to $LENS_DISK on exit."
 echo "  Add .lens/ to .gitignore or commit it — your choice."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exit 0

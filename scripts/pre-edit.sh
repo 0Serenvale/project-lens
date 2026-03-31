@@ -34,8 +34,11 @@ for skip in $SKIP_EXTS; do
   fi
 done
 
-# Find the .lens directory for this project
-LENS_DIR="$CWD/.lens"
+# Resolve RAM path — fast read from /dev/shm if loaded, fallback to disk
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$CWD"
+LENS_DIR="${LENS_RAM:-$LENS_DISK}"
+[[ -d "$LENS_DIR" ]] || LENS_DIR="$LENS_DISK"
+
 FEATURE_DOC=""
 OUTPUT=""
 

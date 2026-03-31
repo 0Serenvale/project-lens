@@ -17,7 +17,13 @@ fi
 API_KEY="${OPENROUTER_API_KEY:-${CLAUDE_PLUGIN_OPTION_openrouter_key:-}}"
 MODEL="${OPENROUTER_MODEL:-${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}}"
 
-LENS_DIR="$PROJECT_ROOT/.lens"
+# Read from RAM if loaded, fallback to disk
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
+if [[ -d "$LENS_RAM" ]]; then
+  LENS_DIR="$LENS_RAM"
+else
+  LENS_DIR="$LENS_DISK"
+fi
 
 if [[ ! -d "$LENS_DIR" ]]; then
   echo "⚠ No .lens/ directory found. Run /lens:init first." >&2
