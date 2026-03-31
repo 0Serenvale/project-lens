@@ -21,6 +21,22 @@ if [[ -z "$API_KEY" ]]; then
   exit 1
 fi
 
+# ─── Dependency check ────────────────────────────────────────────────────────
+if ! command -v jq &>/dev/null; then
+  echo "[PROJECT LENS] Installing missing dependency: jq..."
+  if command -v apt-get &>/dev/null; then
+    sudo apt-get install -y jq 2>/dev/null || apt-get install -y jq 2>/dev/null
+  elif command -v brew &>/dev/null; then
+    brew install jq
+  elif command -v yum &>/dev/null; then
+    sudo yum install -y jq
+  else
+    echo "ERROR: jq is required but could not be installed automatically." >&2
+    echo "  Install manually: https://jqlang.github.io/jq/download/" >&2
+    exit 1
+  fi
+fi
+
 echo "[PROJECT LENS] Initializing project at $PROJECT_ROOT..."
 
 # Write to RAM during init — session-end.sh syncs to disk
