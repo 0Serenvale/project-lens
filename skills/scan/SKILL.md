@@ -1,10 +1,8 @@
 ---
 name: scan
 description: Scan a specific file or directory with OpenRouter and update its .lens feature doc. Use after adding new features, after major refactors, or when a feature doc feels outdated.
-argument-hint: <file_or_directory>
+argument-hint: file_or_directory
 user-invocable: true
-disable-model-invocation: false
-allowed-tools: Bash, Read, Glob
 ---
 
 # /lens:scan

@@ -1,10 +1,8 @@
 ---
 name: init
 description: Initialize project-lens on a new or existing project. Scans all code files with a cheap OpenRouter LLM and generates per-feature documentation in .lens/. Run this once when starting work on any project.
-argument-hint: [project_root]
+argument-hint: project_root
 user-invocable: true
-disable-model-invocation: false
-allowed-tools: Bash, Read, Write, Glob
 ---
 
 # /lens:init

@@ -1,6 +1,7 @@
 #!/bin/bash
-# scan.sh — Calls OpenRouter with a cheap LLM to analyze a file and
-# write/update its feature doc in .lens/features/.
+# scan.sh — Calls OpenRouter LLM to analyze a file and write a structured
+# feature doc in .lens/features/. The prompt is engineered to eliminate
+# every shortcut a lazy LLM (or Claude) would normally take.
 #
 # Usage: scan.sh <file_path> <project_root>
 
@@ -14,12 +15,14 @@ if [[ -z "$FILE_PATH" || ! -f "$FILE_PATH" ]]; then
   exit 1
 fi
 
-# Get API key and model from plugin userConfig env vars
-API_KEY="${CLAUDE_PLUGIN_OPTION_openrouter_key:-}"
-MODEL="${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}"
+# API key and model from env (set via: claude plugin config project-lens)
+API_KEY="${OPENROUTER_API_KEY:-${CLAUDE_PLUGIN_OPTION_openrouter_key:-}}"
+MODEL="${OPENROUTER_MODEL:-${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}}"
 
 if [[ -z "$API_KEY" ]]; then
-  echo "scan.sh: CLAUDE_PLUGIN_OPTION_openrouter_key not set. Run: /lens:init to configure." >&2
+  echo "scan.sh: no OpenRouter key found." >&2
+  echo "  Set globally: export OPENROUTER_API_KEY=your-key in ~/.bashrc" >&2
+  echo "  Or via plugin: claude plugin config project-lens openrouter_key your-key" >&2
   exit 1
 fi
 
@@ -29,59 +32,155 @@ mkdir -p "$LENS_DIR/features"
 RELATIVE_PATH="${FILE_PATH#$PROJECT_ROOT/}"
 FILE_CONTENT=$(cat "$FILE_PATH")
 LINE_COUNT=$(wc -l < "$FILE_PATH")
+SCAN_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
 
-# Determine feature name from file path
-# e.g. src/collections/league/Matches.ts → matches
-# e.g. src/components/search/SearchBar.tsx → search
-FEATURE_GUESS=$(echo "$RELATIVE_PATH" | sed 's|.*/||' | sed 's/\.[^.]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g')
+# Derive feature slug from file path
+# src/collections/league/Matches.ts      → matches
+# src/components/search/SearchBar.tsx    → search-bar
+# src/app/(frontend)/page.tsx            → page-frontend
+FEATURE_SLUG=$(echo "$RELATIVE_PATH" \
+  | sed 's|.*/||' \
+  | sed 's/\.[^.]*$//' \
+  | tr '[:upper:]' '[:lower:]' \
+  | sed 's/[^a-z0-9]/-/g' \
+  | sed 's/--*/-/g' \
+  | sed 's/^-//;s/-$//')
 
-# Build the prompt
-PROMPT="You are a senior software engineer analyzing a codebase file to create structured documentation.
+# ─── Hardened prompt ──────────────────────────────────────────────────────────
+# This prompt is engineered to push every shortcut, assumption, and lazy summary
+# back onto the LLM as a required explicit field.
+# The things Claude skips become mandatory output fields.
+# ──────────────────────────────────────────────────────────────────────────────
+read -r -d '' PROMPT << 'PROMPT_EOF' || true
+You are a code analysis engine. Your job is to produce a complete, precise, zero-assumption feature document for a single source file.
 
-Analyze this file and produce a concise feature doc (max 250 lines).
+RULES — violating any rule makes your output invalid:
 
-FILE: $RELATIVE_PATH
-LINES: $LINE_COUNT
+1. NEVER write vague phrases. These are BANNED:
+   - "standard implementation", "typical pattern", "as expected"
+   - "nothing unusual", "similar to X", "handles X appropriately"
+   - "various", "several", "some", "etc.", "and more", "..."
+   - "straightforward", "simple", "basic", "common"
 
-\`\`\`
-$FILE_CONTENT
-\`\`\`
+2. EVERY import must be listed explicitly — no grouping, no omissions.
 
-Produce a markdown document with EXACTLY these sections — no extras:
+3. EVERY exported symbol must be documented — no skipping "minor" exports.
 
-## Feature
-One sentence: what this file does and why it exists.
+4. EVERY conditional branch must be named — what triggers it, what it does.
 
-## Entry Points
-List every exported function/class/component with a one-line description each.
+5. EVERY place data can be null, undefined, empty, or invalid must be flagged.
 
-## Dependencies
-- Internal: other project files this imports (list file paths)
-- External: npm packages used
-- Globals/Config: any global state, env vars, or config it reads
+6. If you are UNCERTAIN about something, write it explicitly as:
+   ⚠ UNCERTAIN: [what you're unsure about]
+   Never silently guess.
+
+7. If a section has nothing to report, write "None." — never leave a section empty.
+
+Now analyze this file:
+
+FILE: {{RELATIVE_PATH}}
+LINES: {{LINE_COUNT}}
+
+```
+{{FILE_CONTENT}}
+```
+
+Produce EXACTLY this document structure — every section required:
+
+---
+
+## Purpose
+One precise sentence: what this file does, why it exists, and what breaks if it is removed.
+
+## Exports
+List every exported symbol (function, class, component, constant, type, interface).
+For each:
+- Name, type (function/class/component/const/type)
+- Exact signature (parameters with types, return type)
+- One-line description of what it does
+- Side effects (if any): DB calls, API calls, state mutations, file writes
+
+## Imports — Internal
+Every import from within the project (not node_modules).
+For each: exact import path → what is used from it → why this file needs it.
+If none: write "None."
+
+## Imports — External
+Every import from node_modules.
+For each: package name → what is imported → why.
+If none: write "None."
+
+## Imports — Framework / Config
+Any framework primitives, config files, env vars, or globals this file reads.
+For each: name → what it provides → where it comes from.
+If none: write "None."
 
 ## Called By
-Which other parts of the codebase would typically import or use this. If unknown, say \"Unknown — run lens:init for full map\".
+Every other file in the project that would import or use this file's exports.
+Be explicit — list file paths if visible from imports/naming conventions.
+If cannot be determined from this file alone: write "⚠ UNCERTAIN: requires full project scan — run /lens:init"
 
 ## Data Flow
-Step-by-step: how data enters, transforms, and exits this file.
+Number each step. Trace exactly how data enters, transforms, and exits.
+Include: input source → validation → transformation → output destination.
+Every branch that changes the flow must be on its own numbered step.
+Example:
+1. Input: `req.user` from Payload auth middleware — can be null if unauthenticated
+2. Branch: if user is null → returns { visibility: { equals: 'PUBLIC' } }
+3. Branch: if user.role in ADMIN_ROLES → returns true (unrestricted access)
+4. Default: returns { visibility: { not_in: ['ADMIN_ONLY'] } }
+
+## Conditional Logic
+List every if/else, switch, ternary, and optional chain (?.) that changes behavior.
+For each: condition → what happens when true → what happens when false/missing.
+If none: write "None."
+
+## Null / Undefined / Empty Risks
+Every place in this file where a value could be null, undefined, empty array, or zero.
+For each: variable name → where it comes from → what happens if it's missing → is it handled?
+If none: write "None."
+
+## Side Effects
+Everything this file does beyond returning a value:
+- Database reads or writes
+- API calls (internal or external)
+- File system operations
+- Cache invalidation
+- Event emissions
+- State mutations
+If none: write "None."
 
 ## Gotchas
-Any non-obvious behavior, edge cases, known bugs, performance concerns, or things that would trip up someone unfamiliar with this code. If none, write \"None identified.\".
+Non-obvious behavior that would trip up someone unfamiliar with this file.
+Things that look like bugs but aren't. Things that ARE bugs. Performance traps.
+Ordering dependencies. Race conditions. Anything surprising.
+Each gotcha must be a concrete statement, not a vague warning.
+If none: write "None."
 
 ## Status
-- [ ] Fully implemented
-- [ ] Has known issues
-- [ ] Needs tests
-- [ ] Needs optimization
-Mark whichever apply based on what you see in the code.
+Check all that apply — be honest based on what you actually see in the code:
+- [ ] Fully implemented — all logic complete, no TODOs
+- [ ] Has TODOs or incomplete sections — list them
+- [ ] Has known bugs — describe them
+- [ ] Missing error handling — where?
+- [ ] Missing input validation — where?
+- [ ] Performance concerns — what and where?
+- [ ] No tests visible — (note: test files are separate)
+- [ ] Needs refactoring — why?
 
 ## Last Scanned
-$(date -u +"%Y-%m-%d %H:%M UTC")
+{{SCAN_DATE}}
 
-Keep each section tight. No padding. No repeated information."
+---
+PROMPT_EOF
 
-# Call OpenRouter
+# Substitute placeholders (safe — no eval, just sed)
+PROMPT="${PROMPT//\{\{RELATIVE_PATH\}\}/$RELATIVE_PATH}"
+PROMPT="${PROMPT//\{\{LINE_COUNT\}\}/$LINE_COUNT}"
+PROMPT="${PROMPT//\{\{SCAN_DATE\}\}/$SCAN_DATE}"
+PROMPT="${PROMPT//\{\{FILE_CONTENT\}\}/$FILE_CONTENT}"
+
+# ─── Call OpenRouter ──────────────────────────────────────────────────────────
 RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
@@ -92,46 +191,64 @@ RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
     --arg content "$PROMPT" \
     '{
       model: $model,
-      max_tokens: 2000,
-      messages: [{role: "user", content: $content}]
+      max_tokens: 3000,
+      temperature: 0.1,
+      messages: [
+        {
+          role: "system",
+          content: "You are a code analysis engine. You produce structured documentation with zero vagueness. You never skip fields. You never use filler phrases. You flag uncertainty explicitly."
+        },
+        {
+          role: "user",
+          content: $content
+        }
+      ]
     }'
   )")
 
-# Extract the doc content
+# ─── Extract and validate response ───────────────────────────────────────────
 DOC=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
 
 if [[ -z "$DOC" ]]; then
   ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
-  echo "scan.sh: OpenRouter error: $ERROR" >&2
+  echo "scan.sh: OpenRouter error for $RELATIVE_PATH: $ERROR" >&2
   exit 1
 fi
 
-# Write the feature doc
-DOC_PATH="$LENS_DIR/features/$FEATURE_GUESS.md"
+# Basic validation — check required sections are present
+MISSING=""
+for section in "## Purpose" "## Exports" "## Imports" "## Data Flow" "## Gotchas" "## Status"; do
+  if ! echo "$DOC" | grep -q "^$section"; then
+    MISSING="$MISSING $section"
+  fi
+done
 
-# If doc already exists, preserve the feature name from the header
-if [[ -f "$DOC_PATH" ]]; then
-  EXISTING_FEATURE=$(grep "^## Feature" "$DOC_PATH" -A1 | tail -1)
+if [[ -n "$MISSING" ]]; then
+  echo "scan.sh: WARNING — response missing sections:$MISSING" >&2
+  echo "scan.sh: Writing doc anyway but quality may be degraded." >&2
 fi
 
+# ─── Write feature doc ────────────────────────────────────────────────────────
+DOC_PATH="$LENS_DIR/features/$FEATURE_SLUG.md"
+
 cat > "$DOC_PATH" << EOF
-<!-- project-lens: auto-generated. Do not edit manually. -->
+<!-- project-lens auto-generated — do not edit manually -->
 <!-- file: $RELATIVE_PATH -->
 <!-- model: $MODEL -->
+<!-- scanned: $SCAN_DATE -->
 
 $DOC
 EOF
 
-# Update the index.md file→feature mapping
+# ─── Update index ─────────────────────────────────────────────────────────────
 INDEX="$LENS_DIR/index.md"
 touch "$INDEX"
 
-# Remove old entry for this file if exists
 TMP=$(mktemp)
 grep -v "^$RELATIVE_PATH" "$INDEX" > "$TMP" 2>/dev/null || true
-echo "$RELATIVE_PATH → $FEATURE_GUESS" >> "$TMP"
+echo "$RELATIVE_PATH → $FEATURE_SLUG" >> "$TMP"
 sort "$TMP" > "$INDEX"
 rm "$TMP"
 
-echo "scan.sh: updated $DOC_PATH"
+echo "scan.sh: ✓ $RELATIVE_PATH → $DOC_PATH"
 exit 0

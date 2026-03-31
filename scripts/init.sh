@@ -8,12 +8,13 @@ set -euo pipefail
 PROJECT_ROOT="${1:-$(pwd)}"
 LENS_DIR="$PROJECT_ROOT/.lens"
 
-API_KEY="${CLAUDE_PLUGIN_OPTION_openrouter_key:-}"
-MODEL="${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}"
+API_KEY="${OPENROUTER_API_KEY:-${CLAUDE_PLUGIN_OPTION_openrouter_key:-}}"
+MODEL="${OPENROUTER_MODEL:-${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}}"
 
 if [[ -z "$API_KEY" ]]; then
   echo "ERROR: OpenRouter key not configured." >&2
-  echo "Run: claude plugin config project-lens openrouter_key <your-key>" >&2
+  echo "  Option 1 (global): export OPENROUTER_API_KEY=your-key in ~/.bashrc" >&2
+  echo "  Option 2 (plugin): claude plugin config project-lens openrouter_key your-key" >&2
   exit 1
 fi
 
@@ -68,27 +69,53 @@ done <<< "$CODE_FILES"
 echo "[PROJECT LENS] Generating project overview..."
 
 FILE_LIST=$(ls "$LENS_DIR/features/" 2>/dev/null | sed 's/\.md$//' | sort | tr '\n' ', ')
+FILE_TREE=$(echo "$CODE_FILES" | head -50 | sed "s|$PROJECT_ROOT/||" | sort)
 
-SUMMARY_PROMPT="Based on a codebase with these feature modules: $FILE_LIST
+SUMMARY_PROMPT="You are a code analysis engine producing a project overview document.
 
-And this file tree sample:
-$(echo "$CODE_FILES" | head -30 | sed "s|$PROJECT_ROOT/||")
+BANNED phrases — using these makes your output invalid:
+- \"standard\", \"typical\", \"common\", \"straightforward\", \"simple\"
+- \"various\", \"several\", \"some\", \"etc.\", \"and more\", \"...\"
+- \"as expected\", \"nothing unusual\", \"similar to\"
 
-Write a concise project overview (max 100 lines) with:
+Feature modules found: $FILE_LIST
+
+File tree:
+$FILE_TREE
+
+Produce EXACTLY this document — every section required, no vagueness:
+
 ## Project Type
-What kind of project this is (CMS, API, frontend app, etc.)
+Precise description: what kind of system this is, what it serves, who uses it.
+Not: 'a web application'. Yes: 'A sports league management CMS built on PayloadCMS 3 + Next.js 15, serving league administrators and public visitors with match results, standings, and documents.'
+
+## Stack
+List every major technology with its exact version and its specific role in this project.
+Format: Technology vX.X — role
 
 ## Architecture
-Key architectural decisions visible from the file structure.
+Describe the actual architecture as seen in the file tree.
+Name the layers, how they connect, and what owns what.
+Be specific to this project — not a generic description of the framework.
 
 ## Feature Map
-Table: Feature | Key Files | Purpose
+| Feature slug | Key files (exact paths) | What it does | Dependencies |
+List every feature module found.
 
-## Workflow
-How the main data flows through the system end-to-end.
+## Data Flow
+Trace the main data path end-to-end for this specific project.
+Number each step. Name actual files and functions where visible.
 
 ## Entry Points
-The main files to start reading to understand the project."
+The exact files a developer should read first to understand each major area.
+Format: Area → file path → why start here
+
+## Known Gaps
+Anything missing, incomplete, or that the file tree suggests is not yet built.
+If none visible: write 'None identified from file tree.'
+
+## Last Generated
+$(date -u +"%Y-%m-%d %H:%M UTC")"
 
 SUMMARY_RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
   -H "Authorization: Bearer $API_KEY" \
@@ -98,7 +125,21 @@ SUMMARY_RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completion
   -d "$(jq -n \
     --arg model "$MODEL" \
     --arg content "$SUMMARY_PROMPT" \
-    '{model: $model, max_tokens: 1500, messages: [{role: "user", content: $content}]}'
+    '{
+      model: $model,
+      max_tokens: 2000,
+      temperature: 0.1,
+      messages: [
+        {
+          role: "system",
+          content: "You are a code analysis engine. Zero vagueness. Every field explicit. Flag uncertainty with ⚠ UNCERTAIN."
+        },
+        {
+          role: "user",
+          content: $content
+        }
+      ]
+    }'
   )")
 
 SUMMARY=$(echo "$SUMMARY_RESPONSE" | jq -r '.choices[0].message.content // "Could not generate summary."')

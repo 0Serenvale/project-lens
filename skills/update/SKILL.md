@@ -1,10 +1,7 @@
 ---
 name: update
 description: Update all stale .lens feature docs after a work session. Run this after code review or after a batch of commits to keep docs current. Part of the standard workflow: code review → commit → update.
-argument-hint: []
 user-invocable: true
-disable-model-invocation: false
-allowed-tools: Bash, Read
 ---
 
 # /lens:update
