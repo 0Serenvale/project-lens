@@ -10,7 +10,6 @@
   "license": "MIT",
   "keywords": ["documentation", "context", "codebase", "openrouter", "feature-docs"],
   "skills": "./skills/",
-  "hooks": "./hooks/hooks.json",
   "userConfig": {
     "openrouter_key": {
       "title": "OpenRouter API Key",
