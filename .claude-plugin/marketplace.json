@@ -11,7 +11,11 @@
     {
       "name": "project-lens",
       "description": "Uses a free OpenRouter LLM to scan your project and generate per-feature docs. Injects full file content + feature context before every edit. RAM-cached via /dev/shm for instant reads.",
-      "source": ".",
+      "source": {
+        "source": "github",
+        "repo": "0Serenvale/project-lens",
+        "ref": "main"
+      },
       "version": "1.0.0",
       "author": {
         "name": "Serenvale"
