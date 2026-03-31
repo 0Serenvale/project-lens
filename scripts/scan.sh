@@ -15,20 +15,20 @@ if [[ -z "$FILE_PATH" || ! -f "$FILE_PATH" ]]; then
   exit 1
 fi
 
-# API key and model from env (set via: claude plugin config project-lens)
-API_KEY="${OPENROUTER_API_KEY:-${CLAUDE_PLUGIN_OPTION_openrouter_key:-}}"
-MODEL="${OPENROUTER_MODEL:-${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}}"
+# Load config + RAM paths (ram.sh sets OPENROUTER_API_KEY and OPENROUTER_MODEL)
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
+API_KEY="$OPENROUTER_API_KEY"
+MODEL="$OPENROUTER_MODEL"
 
 if [[ -z "$API_KEY" ]]; then
   echo "scan.sh: no OpenRouter key found." >&2
-  echo "  Set globally: export OPENROUTER_API_KEY=your-key in ~/.bashrc" >&2
-  echo "  Or via plugin: claude plugin config project-lens openrouter_key your-key" >&2
+  echo "  Add to ~/.claude/project-lens.env:" >&2
+  echo "  OPENROUTER_API_KEY=your-key" >&2
   exit 1
 fi
 
 # Write to RAM if available, disk as fallback
 # session-end.sh will sync RAM → disk at end of session
-source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
 if [[ -d "/dev/shm" || -d "$LENS_RAM" ]]; then
   mkdir -p "$LENS_RAM/features"
   LENS_DIR="$LENS_RAM"

@@ -6,7 +6,20 @@
 
 PROJECT_ROOT="${1:-$(pwd)}"
 
-# Stable hash of the project path — identifies this project's RAM slot
+# ─── Load config file (runtime, no restart needed) ───────────────────────────
+# ~/.claude/project-lens.env is read on every script call.
+# Edit it mid-session to change model or key instantly.
+LENS_CONFIG="${HOME}/.claude/project-lens.env"
+if [[ -f "$LENS_CONFIG" ]]; then
+  # shellcheck source=/dev/null
+  source "$LENS_CONFIG"
+fi
+
+# Resolve final values: config file → env var → plugin userConfig → default
+OPENROUTER_API_KEY="${OPENROUTER_API_KEY:-${CLAUDE_PLUGIN_OPTION_openrouter_key:-}}"
+OPENROUTER_MODEL="${OPENROUTER_MODEL:-${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}}"
+
+# ─── Stable hash of the project path — identifies this project's RAM slot ────
 # Uses md5sum if available, falls back to simple checksum
 if command -v md5sum &>/dev/null; then
   PROJECT_HASH=$(echo -n "$PROJECT_ROOT" | md5sum | cut -c1-12)

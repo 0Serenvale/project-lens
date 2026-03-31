@@ -8,20 +8,20 @@ set -euo pipefail
 PROJECT_ROOT="${1:-$(pwd)}"
 LENS_DIR="$PROJECT_ROOT/.lens"
 
-API_KEY="${OPENROUTER_API_KEY:-${CLAUDE_PLUGIN_OPTION_openrouter_key:-}}"
-MODEL="${OPENROUTER_MODEL:-${CLAUDE_PLUGIN_OPTION_model:-deepseek/deepseek-chat}}"
+# Load config via ram.sh (sets OPENROUTER_API_KEY, OPENROUTER_MODEL)
+source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
+API_KEY="$OPENROUTER_API_KEY"
+MODEL="$OPENROUTER_MODEL"
 
 if [[ -z "$API_KEY" ]]; then
   echo "ERROR: OpenRouter key not configured." >&2
-  echo "  Option 1 (global): export OPENROUTER_API_KEY=your-key in ~/.bashrc" >&2
-  echo "  Option 2 (plugin): claude plugin config project-lens openrouter_key your-key" >&2
+  echo "  Create ~/.claude/project-lens.env with:" >&2
+  echo "  OPENROUTER_API_KEY=your-key" >&2
+  echo "  OPENROUTER_MODEL=qwen/qwen-2.5-72b-instruct:free" >&2
   exit 1
 fi
 
 echo "[PROJECT LENS] Initializing project at $PROJECT_ROOT..."
-
-# Load RAM paths
-source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
 
 # Write to RAM during init — session-end.sh syncs to disk
 if [[ -d "/dev/shm" ]]; then
