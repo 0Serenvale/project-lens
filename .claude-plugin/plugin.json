@@ -1,6 +1,6 @@
 {
   "name": "project-lens",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Per-feature codebase documentation. Uses a cheap OpenRouter LLM to scan your project and generate structured feature docs. Injects relevant context before every file edit so Claude never skims unknown code.",
   "author": {
     "name": "Serenvale",
