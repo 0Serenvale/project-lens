@@ -11,8 +11,25 @@ PROJECT_ROOT="${1:-$(pwd)}"
 # Edit it mid-session to change model or key instantly.
 LENS_CONFIG="${HOME}/.claude/project-lens.env"
 if [[ -f "$LENS_CONFIG" ]]; then
-  # shellcheck source=/dev/null
-  source "$LENS_CONFIG"
+  # Parse config without sourcing (security: avoid eval)
+  while IFS='=' read -r key value || [[ -n "$key" ]]; do
+    # Skip comments and empty lines
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+
+    # Trim whitespace using Bash built-ins
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+
+    # Only allow specific keys
+    case "$key" in
+      OPENROUTER_API_KEY|OPENROUTER_MODEL)
+        export "$key"="$value"
+        ;;
+    esac
+  done < "$LENS_CONFIG"
 fi
 
 # Resolve final values: config file → env var → plugin userConfig → default
