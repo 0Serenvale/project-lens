@@ -53,7 +53,8 @@ fi
 CODE_FILES=$(find "$PROJECT_ROOT" -type f \
   \( -name "*.ts" -o -name "*.tsx" -o -name "*.js" -o -name "*.jsx" \
      -o -name "*.py" -o -name "*.go" -o -name "*.rs" -o -name "*.php" \
-     -o -name "*.rb" -o -name "*.java" -o -name "*.vue" -o -name "*.svelte" \) \
+     -o -name "*.rb" -o -name "*.java" -o -name "*.vue" -o -name "*.svelte" \
+     -o -name "*.sh" \) \
   -not -path "*/node_modules/*" \
   -not -path "*/.git/*" \
   -not -path "*/dist/*" \
