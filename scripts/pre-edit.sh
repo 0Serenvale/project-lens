@@ -49,11 +49,13 @@ if [[ -d "$LENS_DIR/features" ]]; then
   BEST_MATCH=""
   BEST_SCORE=0
 
+  # Check if the file path contains the feature name or vice versa
+  shopt -s nocasematch
   for doc in "$LENS_DIR/features"/*.md; do
     [[ -f "$doc" ]] || continue
-    DOC_NAME=$(basename "$doc" .md)
-    # Check if the file path contains the feature name or vice versa
-    if echo "$RELATIVE_PATH" | grep -qi "$DOC_NAME"; then
+    DOC_NAME="${doc##*/}"
+    DOC_NAME="${DOC_NAME%.md}"
+    if [[ "$RELATIVE_PATH" =~ $DOC_NAME ]]; then
       SCORE=${#DOC_NAME}
       if (( SCORE > BEST_SCORE )); then
         BEST_SCORE=$SCORE
@@ -61,6 +63,7 @@ if [[ -d "$LENS_DIR/features" ]]; then
       fi
     fi
   done
+  shopt -u nocasematch
 
   # Also check index.md for file→feature mapping
   if [[ -f "$LENS_DIR/index.md" ]] && grep -q "$RELATIVE_PATH" "$LENS_DIR/index.md" 2>/dev/null; then
