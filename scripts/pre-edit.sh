@@ -1,107 +1,114 @@
 #!/bin/bash
-# pre-edit.sh — Fires before every Edit/Write tool call.
-# Reads the target file path, finds the matching .lens feature doc,
-# and injects its content + the full file content into Claude's context.
-# Claude receives this as already-read context — nothing to skip.
+# pre-edit.sh — PreToolUse hook for Edit|Write.
+# Injects feature doc + file content into Claude's context before every edit.
+# Feature doc: always injected if available.
+# File content: full if ≤200 lines, first+last 80 lines with summary note if larger.
 
 set -euo pipefail
 
 INPUT=$(cat)
-FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
 
-# Nothing to do if no file path
-if [[ -z "$FILE_PATH" ]]; then
-  exit 0
-fi
+# Extract fields — jq guaranteed by ram.sh
+FILE_PATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty')
+CWD=$(echo "$INPUT"      | jq -r '.cwd // empty')
+CWD="${CWD:-$(pwd)}"
+
+[[ -z "$FILE_PATH" ]] && exit 0
 
 # Resolve absolute path
-if [[ "$FILE_PATH" != /* ]]; then
-  FILE_PATH="$CWD/$FILE_PATH"
-fi
+[[ "$FILE_PATH" != /* ]] && FILE_PATH="$CWD/$FILE_PATH"
 
-# Skip if file doesn't exist yet (new file creation)
-if [[ ! -f "$FILE_PATH" ]]; then
-  exit 0
-fi
+# Skip new files and non-code files
+[[ ! -f "$FILE_PATH" ]] && exit 0
 
-# Skip non-code files
 EXT="${FILE_PATH##*.}"
-SKIP_EXTS="json lock png jpg svg ico gif webp woff woff2 ttf eot mp4 mp3 pdf zip"
-for skip in $SKIP_EXTS; do
-  if [[ "$EXT" == "$skip" ]]; then
-    exit 0
-  fi
+for skip in json lock png jpg jpeg svg ico gif webp woff woff2 ttf eot mp4 mp3 pdf zip; do
+  [[ "$EXT" == "$skip" ]] && exit 0
 done
 
-# Resolve RAM path — fast read from /dev/shm if loaded, fallback to disk
-source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$CWD"
-LENS_DIR="${LENS_RAM:-$LENS_DISK}"
-[[ -d "$LENS_DIR" ]] || LENS_DIR="$LENS_DISK"
+# Bootstrap: sets LENS_RAM, LENS_DISK, CLAUDE_PLUGIN_ROOT, checks jq/curl
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/ram.sh" "$CWD"
 
-FEATURE_DOC=""
-OUTPUT=""
-
-# --- Inject feature doc if it exists ---
-if [[ -d "$LENS_DIR/features" ]]; then
-  # Find the most relevant feature doc by matching file path fragments
-  RELATIVE_PATH="${FILE_PATH#$CWD/}"
-  BEST_MATCH=""
-  BEST_SCORE=0
-
-  for doc in "$LENS_DIR/features"/*.md; do
-    [[ -f "$doc" ]] || continue
-    DOC_NAME=$(basename "$doc" .md)
-    # Check if the file path contains the feature name or vice versa
-    if echo "$RELATIVE_PATH" | grep -qi "$DOC_NAME"; then
-      SCORE=${#DOC_NAME}
-      if (( SCORE > BEST_SCORE )); then
-        BEST_SCORE=$SCORE
-        BEST_MATCH="$doc"
-      fi
-    fi
-  done
-
-  # Also check index.md for file→feature mapping
-  if [[ -f "$LENS_DIR/index.md" ]] && grep -q "$RELATIVE_PATH" "$LENS_DIR/index.md" 2>/dev/null; then
-    FEATURE_NAME=$(grep "$RELATIVE_PATH" "$LENS_DIR/index.md" | head -1 | sed 's/.*→ *//;s/ .*//')
-    if [[ -n "$FEATURE_NAME" && -f "$LENS_DIR/features/$FEATURE_NAME.md" ]]; then
-      BEST_MATCH="$LENS_DIR/features/$FEATURE_NAME.md"
-    fi
-  fi
-
-  if [[ -n "$BEST_MATCH" ]]; then
-    FEATURE_DOC=$(cat "$BEST_MATCH")
-  fi
+# Resolve lens dir: RAM first, disk fallback
+if [[ -d "$LENS_RAM" ]]; then
+  LENS_DIR="$LENS_RAM"
+elif [[ -d "$LENS_DISK" ]]; then
+  LENS_DIR="$LENS_DISK"
+else
+  LENS_DIR=""
 fi
 
-# --- Count file lines ---
+RELATIVE_PATH="${FILE_PATH#$CWD/}"
 LINE_COUNT=$(wc -l < "$FILE_PATH")
+FEATURE_DOC=""
 
-# --- Build context output ---
-OUTPUT="━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[PROJECT LENS] Pre-edit context for: ${FILE_PATH#$CWD/}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+# ─── Find best matching feature doc ──────────────────────────────────────────
+if [[ -n "$LENS_DIR" && -d "$LENS_DIR/features" ]]; then
+  # Check index.md first — exact file→feature mapping
+  if [[ -f "$LENS_DIR/index.md" ]]; then
+    FEATURE_SLUG=$(grep "^$RELATIVE_PATH →" "$LENS_DIR/index.md" 2>/dev/null | head -1 | sed 's/.*→ *//' | tr -d ' ')
+    if [[ -n "$FEATURE_SLUG" && -f "$LENS_DIR/features/$FEATURE_SLUG.md" ]]; then
+      FEATURE_DOC=$(cat "$LENS_DIR/features/$FEATURE_SLUG.md")
+    fi
+  fi
 
-if [[ -n "$FEATURE_DOC" ]]; then
-  OUTPUT="$OUTPUT
-
-## Feature Documentation
-$FEATURE_DOC"
+  # Fallback: match by filename slug
+  if [[ -z "$FEATURE_DOC" ]]; then
+    BEST_MATCH=""
+    BEST_SCORE=0
+    for doc in "$LENS_DIR/features"/*.md; do
+      [[ -f "$doc" ]] || continue
+      DOC_NAME=$(basename "$doc" .md)
+      if echo "$RELATIVE_PATH" | grep -qi "$DOC_NAME"; then
+        SCORE=${#DOC_NAME}
+        if (( SCORE > BEST_SCORE )); then
+          BEST_SCORE=$SCORE
+          BEST_MATCH="$doc"
+        fi
+      fi
+    done
+    [[ -n "$BEST_MATCH" ]] && FEATURE_DOC=$(cat "$BEST_MATCH")
+  fi
 fi
 
-OUTPUT="$OUTPUT
-
-## Full File Content ($LINE_COUNT lines)
+# ─── Build file content section (token-aware) ─────────────────────────────────
+if (( LINE_COUNT <= 200 )); then
+  FILE_SECTION="## Full File Content ($LINE_COUNT lines)
 $(cat "$FILE_PATH")"
+else
+  # Large file: inject first 80 + last 80 lines with a note
+  FILE_SECTION="## File Content — $LINE_COUNT lines (showing first 80 + last 80)
+⚠ File exceeds 200 lines. Run /lens:scan on this file for a complete feature doc.
 
-if [[ -n "$FEATURE_DOC" || $LINE_COUNT -gt 0 ]]; then
-  OUTPUT="$OUTPUT
+### Lines 1–80
+$(head -80 "$FILE_PATH")
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-[PROJECT LENS] Read the above completely before making any changes.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+### Lines $((LINE_COUNT - 79))–$LINE_COUNT
+$(tail -80 "$FILE_PATH")"
 fi
 
-echo "$OUTPUT"
+# ─── Build output ─────────────────────────────────────────────────────────────
+{
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "[PROJECT LENS] Pre-edit context: $RELATIVE_PATH"
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+  if [[ -n "$FEATURE_DOC" ]]; then
+    echo ""
+    echo "## Feature Documentation"
+    echo "$FEATURE_DOC"
+  else
+    echo ""
+    echo "⚠ No feature doc found for this file. Run /lens:scan $RELATIVE_PATH to generate one."
+  fi
+
+  echo ""
+  echo "$FILE_SECTION"
+  echo ""
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+  echo "[PROJECT LENS] Read the above before making any changes."
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
 exit 0

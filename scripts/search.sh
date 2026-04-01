@@ -14,11 +14,12 @@ if [[ -z "$TOPIC" ]]; then
   exit 1
 fi
 
+# Bootstrap: sets OPENROUTER_API_KEY, OPENROUTER_MODEL, LENS_RAM, LENS_DISK
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/ram.sh" "$PROJECT_ROOT"
+
 API_KEY="$OPENROUTER_API_KEY"
 MODEL="$OPENROUTER_MODEL"
-
-# Read from RAM if loaded, fallback to disk
-source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
 if [[ -d "$LENS_RAM" ]]; then
   LENS_DIR="$LENS_RAM"
 else

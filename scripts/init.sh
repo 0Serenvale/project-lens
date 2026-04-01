@@ -210,6 +210,18 @@ cat > "$LENS_DIR/overview.md" << EOF
 $SUMMARY
 EOF
 
+# ─── Auto-add .lens/ to .gitignore ───────────────────────────────────────────
+GITIGNORE="$PROJECT_ROOT/.gitignore"
+if [[ -f "$GITIGNORE" ]] || git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
+  touch "$GITIGNORE"
+  if ! grep -qx ".lens/" "$GITIGNORE" 2>/dev/null; then
+    echo "" >> "$GITIGNORE"
+    echo "# project-lens generated docs" >> "$GITIGNORE"
+    echo ".lens/" >> "$GITIGNORE"
+    echo "[PROJECT LENS] Added .lens/ to .gitignore"
+  fi
+fi
+
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo "[PROJECT LENS] Init complete."
@@ -219,7 +231,7 @@ echo "  Overview : $LENS_DIR/overview.md"
 echo "  Features : $LENS_DIR/features/ ($COUNT docs)"
 echo "  Index    : $LENS_DIR/index.md"
 echo ""
-echo "  Docs live in RAM this session. Persisted to $LENS_DISK on exit."
-echo "  Add .lens/ to .gitignore or commit it — your choice."
+echo "  Docs live in RAM. Synced to disk on session end."
+echo "  .lens/ added to .gitignore automatically."
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 exit 0

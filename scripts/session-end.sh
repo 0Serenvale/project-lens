@@ -1,29 +1,30 @@
 #!/bin/bash
-# session-end.sh — Fires on SessionEnd.
-# Syncs any RAM changes (new scans during session) back to disk,
-# then clears the RAM slot.
+# session-end.sh — SessionEnd hook.
+# Syncs RAM docs back to disk, then clears the RAM slot.
 
 set -euo pipefail
 
 INPUT=$(cat)
-CWD=$(echo "$INPUT" | jq -r '.cwd // empty')
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null || pwd)
 CWD="${CWD:-$(pwd)}"
 
-source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$CWD"
+source "$SCRIPT_DIR/lib/ram.sh" "$CWD"
 
-# Nothing to do if no RAM slot exists
-if [[ ! -d "$LENS_RAM" ]]; then
-  exit 0
-fi
+[[ ! -d "$LENS_RAM" ]] && exit 0
 
-# Sync RAM → disk (persist any docs generated during this session)
+# Sync RAM → disk before clearing
 if [[ -d "$LENS_DISK" ]]; then
-  rsync -a --update "$LENS_RAM/" "$LENS_DISK/" 2>/dev/null \
-    || cp -ru "$LENS_RAM/." "$LENS_DISK/" 2>/dev/null \
-    || true
+  if command -v rsync &>/dev/null; then
+    rsync -a --update "$LENS_RAM/" "$LENS_DISK/" 2>/dev/null || cp -r "$LENS_RAM/." "$LENS_DISK/"
+  else
+    cp -r "$LENS_RAM/." "$LENS_DISK/"
+  fi
+elif [[ -d "$(dirname "$LENS_DISK")" ]]; then
+  # .lens/ doesn't exist yet — create it from RAM
+  cp -r "$LENS_RAM" "$LENS_DISK"
 fi
 
-# Clear RAM slot — free the memory
 rm -rf "$LENS_RAM"
-
 exit 0
