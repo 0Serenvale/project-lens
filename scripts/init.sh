@@ -83,15 +83,45 @@ fi
 COUNT=0
 TOTAL_TO_SCAN=$(echo "$CODE_FILES" | grep -c . || echo 0)
 
+RATE_LIMITED=false
+
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
+
+  # Skip already-scanned files — allows resuming after rate limit
+  RELATIVE="${file#$PROJECT_ROOT/}"
+  SLUG=$(echo "$RELATIVE" | sed 's|.*/||' | sed 's/\.[^.]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+  if [[ -f "$LENS_DIR/features/$SLUG.md" ]]; then
+    echo "[PROJECT LENS] [skip] Already scanned: $RELATIVE"
+    COUNT=$((COUNT + 1))
+    continue
+  fi
+
   COUNT=$((COUNT + 1))
-  echo "[PROJECT LENS] [$COUNT/$TOTAL_TO_SCAN] Scanning: ${file#$PROJECT_ROOT/}"
-  "${CLAUDE_PLUGIN_ROOT}/scripts/scan.sh" "$file" "$PROJECT_ROOT" 2>/dev/null || \
-    echo "[PROJECT LENS] Warning: failed to scan $file"
-  # Small delay to avoid rate limiting
+  echo "[PROJECT LENS] [$COUNT/$TOTAL_TO_SCAN] Scanning: $RELATIVE"
+
+  "${CLAUDE_PLUGIN_ROOT}/scripts/scan.sh" "$file" "$PROJECT_ROOT"
+  EXIT_CODE=$?
+
+  if [[ $EXIT_CODE -eq 2 ]]; then
+    # Rate limit hit — stop immediately, don't waste calls
+    RATE_LIMITED=true
+    break
+  elif [[ $EXIT_CODE -ne 0 ]]; then
+    echo "[PROJECT LENS] Warning: failed to scan ${file#$PROJECT_ROOT/}"
+  fi
+
+  # Small delay to avoid hitting rate limits
   sleep 0.3
 done <<< "$CODE_FILES"
+
+if [[ "$RATE_LIMITED" == true ]]; then
+  echo ""
+  echo "[PROJECT LENS] Stopped early due to rate limit."
+  echo "[PROJECT LENS] $(ls "$LENS_DIR/features/" 2>/dev/null | wc -l | tr -d ' ') files scanned so far."
+  echo "[PROJECT LENS] Run /lens:init again when the limit resets (usually midnight UTC)."
+  exit 0
+fi
 
 # Generate project summary doc
 echo "[PROJECT LENS] Generating project overview..."

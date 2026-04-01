@@ -219,6 +219,19 @@ DOC=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
 
 if [[ -z "$DOC" ]]; then
   ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
+
+  # Rate limit — stop everything, don't waste more calls
+  if echo "$ERROR" | grep -qi "rate limit\|per.day\|quota\|limit exceeded"; then
+    echo "" >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    echo "[PROJECT LENS] Rate limit reached for model: $MODEL" >&2
+    echo "[PROJECT LENS] Stopped at: $RELATIVE_PATH" >&2
+    echo "[PROJECT LENS] Scanned so far: $(ls "$LENS_DIR/features/" 2>/dev/null | wc -l | tr -d ' ') files" >&2
+    echo "[PROJECT LENS] Run /lens:init again when the limit resets (usually midnight UTC)." >&2
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+    exit 2  # Exit code 2 = rate limit signal to init.sh
+  fi
+
   echo "scan.sh: OpenRouter error for $RELATIVE_PATH: $ERROR" >&2
   exit 1
 fi
