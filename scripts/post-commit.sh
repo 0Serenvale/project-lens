@@ -31,18 +31,24 @@ if [[ -z "$CODE_FILES" ]]; then
   exit 0
 fi
 
-echo "[PROJECT LENS] Detected commit. Updating docs for changed files..."
+FILE_COUNT=$(echo "$CODE_FILES" | grep -c . || echo 0)
+echo "[PROJECT LENS] Detected commit. Updating docs for $FILE_COUNT changed file(s) (sequential to respect rate limits)..."
 
-# Run scan for each changed file
+# Run scans sequentially — parallel spawning causes rate limit floods on large commits
+SCANNED=0
 while IFS= read -r file; do
   FULL_PATH="$CWD/$file"
   if [[ -f "$FULL_PATH" ]]; then
-    "${CLAUDE_PLUGIN_ROOT}/scripts/scan.sh" "$FULL_PATH" "$CWD" &
+    "${CLAUDE_PLUGIN_ROOT}/scripts/scan.sh" "$FULL_PATH" "$CWD"
+    EXIT_CODE=$?
+    if [[ $EXIT_CODE -eq 2 ]]; then
+      echo "[PROJECT LENS] Rate limit reached — stopping. $SCANNED/$FILE_COUNT files updated."
+      echo "[PROJECT LENS] Run /lens:update when the limit resets (usually midnight UTC)."
+      exit 0
+    fi
+    SCANNED=$((SCANNED + 1))
   fi
 done <<< "$CODE_FILES"
 
-# Wait for all background scans
-wait
-
-echo "[PROJECT LENS] Documentation updated."
+echo "[PROJECT LENS] Documentation updated ($SCANNED file(s))."
 exit 0

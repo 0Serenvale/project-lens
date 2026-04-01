@@ -53,14 +53,17 @@ if [[ -n "$LENS_DIR" && -d "$LENS_DIR/features" ]]; then
     fi
   fi
 
-  # Fallback: match by filename slug
+  # Fallback: match by filename slug (case-insensitive literal match, no subprocesses)
   if [[ -z "$FEATURE_DOC" ]]; then
     BEST_MATCH=""
     BEST_SCORE=0
+    RELATIVE_LOWER="${RELATIVE_PATH,,}"
     for doc in "$LENS_DIR/features"/*.md; do
       [[ -f "$doc" ]] || continue
-      DOC_NAME=$(basename "$doc" .md)
-      if echo "$RELATIVE_PATH" | grep -qi "$DOC_NAME"; then
+      DOC_NAME="${doc##*/}"
+      DOC_NAME="${DOC_NAME%.md}"
+      DOC_LOWER="${DOC_NAME,,}"
+      if [[ "$RELATIVE_LOWER" == *"$DOC_LOWER"* ]]; then
         SCORE=${#DOC_NAME}
         if (( SCORE > BEST_SCORE )); then
           BEST_SCORE=$SCORE

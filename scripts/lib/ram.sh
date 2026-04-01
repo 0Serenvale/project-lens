@@ -20,19 +20,12 @@ fi
 _ensure_dep() {
   local cmd="$1"
   if command -v "$cmd" &>/dev/null; then return 0; fi
-  echo "[PROJECT LENS] Installing missing dependency: $cmd..." >&2
-  if command -v apt-get &>/dev/null; then
-    sudo apt-get install -y "$cmd" 2>/dev/null || apt-get install -y "$cmd" 2>/dev/null || true
-  elif command -v brew &>/dev/null; then
-    brew install "$cmd" 2>/dev/null || true
-  elif command -v yum &>/dev/null; then
-    sudo yum install -y "$cmd" 2>/dev/null || true
-  fi
-  if ! command -v "$cmd" &>/dev/null; then
-    echo "[PROJECT LENS] ERROR: '$cmd' required but could not be installed." >&2
-    echo "[PROJECT LENS] Install manually: https://command-not-found.com/$cmd" >&2
-    exit 1
-  fi
+  echo "[PROJECT LENS] ERROR: '$cmd' is required but not installed." >&2
+  echo "[PROJECT LENS] Install it manually:" >&2
+  echo "  Ubuntu/Debian : sudo apt-get install -y $cmd" >&2
+  echo "  macOS         : brew install $cmd" >&2
+  echo "  RHEL/CentOS   : sudo yum install -y $cmd" >&2
+  exit 1
 }
 
 _ensure_dep jq
@@ -41,8 +34,20 @@ _ensure_dep curl
 # ─── Load config file (runtime — no restart needed) ──────────────────────────
 LENS_CONFIG="${HOME}/.claude/project-lens.env"
 if [[ -f "$LENS_CONFIG" ]]; then
-  # shellcheck source=/dev/null
-  source "$LENS_CONFIG"
+  # Parse config without sourcing — prevents arbitrary code execution from untrusted file
+  while IFS='=' read -r key value || [[ -n "$key" ]]; do
+    [[ "$key" =~ ^[[:space:]]*# ]] && continue
+    [[ -z "$key" ]] && continue
+    key="${key#"${key%%[![:space:]]*}"}"
+    key="${key%"${key##*[![:space:]]}"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$key" in
+      OPENROUTER_API_KEY|OPENROUTER_MODEL)
+        export "$key"="$value"
+        ;;
+    esac
+  done < "$LENS_CONFIG"
 fi
 
 # Resolve final values: config file → shell env → plugin userConfig → default

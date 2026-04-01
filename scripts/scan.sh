@@ -59,7 +59,7 @@ FEATURE_SLUG=$(echo "$RELATIVE_PATH" \
 # back onto the LLM as a required explicit field.
 # The things Claude skips become mandatory output fields.
 # ──────────────────────────────────────────────────────────────────────────────
-read -r -d '' PROMPT << 'PROMPT_EOF' || true
+read -r -d '' PROMPT_TEMPLATE << 'PROMPT_EOF' || true
 You are a code analysis engine. Your job is to produce a complete, precise, zero-assumption feature document for a single source file.
 
 RULES — violating any rule makes your output invalid:
@@ -88,10 +88,7 @@ Now analyze this file:
 
 FILE: {{RELATIVE_PATH}}
 LINES: {{LINE_COUNT}}
-
-```
-{{FILE_CONTENT}}
-```
+SCANNED: {{SCAN_DATE}}
 
 Produce EXACTLY this document structure — every section required:
 
@@ -176,19 +173,17 @@ Check all that apply — be honest based on what you actually see in the code:
 - [ ] No tests visible — (note: test files are separate)
 - [ ] Needs refactoring — why?
 
-## Last Scanned
-{{SCAN_DATE}}
-
 ---
 PROMPT_EOF
 
-# Substitute placeholders (safe — no eval, just sed)
-PROMPT="${PROMPT//\{\{RELATIVE_PATH\}\}/$RELATIVE_PATH}"
-PROMPT="${PROMPT//\{\{LINE_COUNT\}\}/$LINE_COUNT}"
-PROMPT="${PROMPT//\{\{SCAN_DATE\}\}/$SCAN_DATE}"
-PROMPT="${PROMPT//\{\{FILE_CONTENT\}\}/$FILE_CONTENT}"
+# Substitute safe placeholders (metadata only — file content passed separately to jq)
+PROMPT_TEMPLATE="${PROMPT_TEMPLATE//\{\{RELATIVE_PATH\}\}/$RELATIVE_PATH}"
+PROMPT_TEMPLATE="${PROMPT_TEMPLATE//\{\{LINE_COUNT\}\}/$LINE_COUNT}"
+PROMPT_TEMPLATE="${PROMPT_TEMPLATE//\{\{SCAN_DATE\}\}/$SCAN_DATE}"
 
 # ─── Call OpenRouter ──────────────────────────────────────────────────────────
+# FILE_CONTENT passed as --arg to jq so it is safely JSON-encoded.
+# The prompt template and file content are concatenated inside jq — no bash substitution on untrusted content.
 RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
   -H "Authorization: Bearer $API_KEY" \
   -H "Content-Type: application/json" \
@@ -196,7 +191,8 @@ RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
   -H "X-Title: project-lens" \
   -d "$(jq -n \
     --arg model "$MODEL" \
-    --arg content "$PROMPT" \
+    --arg prompt "$PROMPT_TEMPLATE" \
+    --arg fileContent "$FILE_CONTENT" \
     '{
       model: $model,
       max_tokens: 3000,
@@ -208,7 +204,7 @@ RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
         },
         {
           role: "user",
-          content: $content
+          content: ($prompt + "\n\n```\n" + $fileContent + "\n```")
         }
       ]
     }'
