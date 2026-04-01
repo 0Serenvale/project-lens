@@ -14,8 +14,8 @@ if [[ -z "$TOPIC" ]]; then
   exit 1
 fi
 
-API_KEY="$OPENROUTER_API_KEY"
-MODEL="$OPENROUTER_MODEL"
+API_KEY="${OPENROUTER_API_KEY:-}"
+MODEL="${OPENROUTER_MODEL:-}"
 
 # Read from RAM if loaded, fallback to disk
 source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
