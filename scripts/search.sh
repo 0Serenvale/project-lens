@@ -14,11 +14,12 @@ if [[ -z "$TOPIC" ]]; then
   exit 1
 fi
 
-API_KEY="$OPENROUTER_API_KEY"
-MODEL="$OPENROUTER_MODEL"
+# Bootstrap: sets OPENROUTER_API_KEY, OPENROUTER_MODEL, LENS_RAM, LENS_DISK
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "$SCRIPT_DIR/lib/ram.sh" "$PROJECT_ROOT"
 
-# Read from RAM if loaded, fallback to disk
-source "${CLAUDE_PLUGIN_ROOT}/scripts/lib/ram.sh" "$PROJECT_ROOT"
+API_KEY="${OPENROUTER_API_KEY:-}"
+MODEL="${OPENROUTER_MODEL:-}"
 if [[ -d "$LENS_RAM" ]]; then
   LENS_DIR="$LENS_RAM"
 else
@@ -31,38 +32,47 @@ if [[ ! -d "$LENS_DIR" ]]; then
 fi
 
 # ─── Step 1: grep search — free, no LLM needed ───────────────────────────────
-# Find matching docs by filename and content
-MATCHED_FILES=""
+# Use bash array to safely handle paths with spaces
+declare -A SEEN_DOCS
+MATCHED_FILES=()
 
 # Match by feature slug name
+TOPIC_LOWER="${TOPIC,,}"
 for doc in "$LENS_DIR/features"/*.md; do
   [[ -f "$doc" ]] || continue
-  SLUG=$(basename "$doc" .md)
-  if echo "$SLUG" | grep -qi "$TOPIC"; then
-    MATCHED_FILES="$MATCHED_FILES $doc"
+  SLUG="${doc##*/}"
+  SLUG="${SLUG%.md}"
+  SLUG_LOWER="${SLUG,,}"
+  if [[ "$SLUG_LOWER" == *"$TOPIC_LOWER"* ]]; then
+    MATCHED_FILES+=("$doc")
+    SEEN_DOCS["$doc"]=1
   fi
 done
 
 # Match by content if no filename match
-if [[ -z "$MATCHED_FILES" ]]; then
-  CONTENT_MATCHES=$(grep -ril "$TOPIC" "$LENS_DIR/features/" 2>/dev/null || true)
-  MATCHED_FILES="$CONTENT_MATCHES"
+if [[ ${#MATCHED_FILES[@]} -eq 0 ]]; then
+  while IFS= read -r match; do
+    [[ -z "$match" ]] && continue
+    if [[ -z "${SEEN_DOCS[$match]+_}" ]]; then
+      MATCHED_FILES+=("$match")
+      SEEN_DOCS["$match"]=1
+    fi
+  done < <(grep -ril "$TOPIC" "$LENS_DIR/features/" 2>/dev/null || true)
 fi
 
 # Also check index for direct file→feature mapping
 if [[ -f "$LENS_DIR/index.md" ]]; then
-  INDEX_MATCH=$(grep -i "$TOPIC" "$LENS_DIR/index.md" | head -5 | sed 's/.*→ *//' | tr -d ' ' || true)
-  if [[ -n "$INDEX_MATCH" ]]; then
-    for slug in $INDEX_MATCH; do
-      [[ -f "$LENS_DIR/features/$slug.md" ]] && MATCHED_FILES="$MATCHED_FILES $LENS_DIR/features/$slug.md"
-    done
-  fi
+  while IFS= read -r slug; do
+    [[ -z "$slug" ]] && continue
+    doc="$LENS_DIR/features/$slug.md"
+    if [[ -f "$doc" && -z "${SEEN_DOCS[$doc]+_}" ]]; then
+      MATCHED_FILES+=("$doc")
+      SEEN_DOCS["$doc"]=1
+    fi
+  done < <(grep -i "$TOPIC" "$LENS_DIR/index.md" 2>/dev/null | head -5 | sed 's/.*→ *//' | tr -d ' ')
 fi
 
-# Deduplicate
-MATCHED_FILES=$(echo "$MATCHED_FILES" | tr ' ' '\n' | sort -u | grep -v '^$' || true)
-
-if [[ -z "$MATCHED_FILES" ]]; then
+if [[ ${#MATCHED_FILES[@]} -eq 0 ]]; then
   echo "⚠ No .lens docs found for topic: '$TOPIC'"
   echo "  Available features: $(ls "$LENS_DIR/features/" | sed 's/\.md//' | tr '\n' ', ')"
   echo "  Run: /lens:scan <file> to generate a doc for a specific file."
@@ -73,16 +83,17 @@ fi
 DOCS_CONTENT=""
 DOC_NAMES=""
 
-while IFS= read -r doc; do
-  [[ -z "$doc" || ! -f "$doc" ]] && continue
-  SLUG=$(basename "$doc" .md)
+for doc in "${MATCHED_FILES[@]}"; do
+  [[ -f "$doc" ]] || continue
+  SLUG="${doc##*/}"
+  SLUG="${SLUG%.md}"
   DOC_NAMES="$DOC_NAMES $SLUG"
   DOCS_CONTENT="$DOCS_CONTENT
 
 === FEATURE DOC: $SLUG ===
 $(cat "$doc")
 "
-done <<< "$MATCHED_FILES"
+done
 
 # ─── Step 3: if only one small doc, return it directly (no LLM cost) ─────────
 TOTAL_LINES=$(echo "$DOCS_CONTENT" | wc -l)
