@@ -81,7 +81,7 @@ fi
 
 # Filter out files matched by .lensignore
 if [[ -f "$PROJECT_ROOT/.lensignore" ]]; then
-  while IFS= read -r pattern; do
+  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
     # Skip empty lines and comments
     [[ -z "$pattern" || "$pattern" == \#* ]] && continue
     # Convert simple glob to ERE (e.g. *.md -> .*\.md)
@@ -96,12 +96,12 @@ fi
 # Clean up already scanned files that now match .lensignore
 if [[ -f "$PROJECT_ROOT/.lensignore" && -f "$LENS_DIR/index.md" ]]; then
   echo "[PROJECT LENS] Cleaning up ignored files from .lens/..."
-  while IFS= read -r pattern; do
+  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
     [[ -z "$pattern" || "$pattern" == \#* ]] && continue
     regex=$(echo "$pattern" | sed 's/\./\\./g' | sed 's/\*/.*/g')
     if [[ -n "$regex" ]]; then
       # Find ignored files in the index
-      IGNORED_IN_INDEX=$(grep -E "^$regex" "$LENS_DIR/index.md" || true)
+      IGNORED_IN_INDEX=$(grep -E "$regex" "$LENS_DIR/index.md" || true)
       if [[ -n "$IGNORED_IN_INDEX" ]]; then
         while IFS= read -r line; do
           # Format: path/to/file → slug
@@ -114,9 +114,9 @@ if [[ -f "$PROJECT_ROOT/.lensignore" && -f "$LENS_DIR/index.md" ]]; then
         done <<< "$IGNORED_IN_INDEX"
         # Remove from index
         if sed --version 2>/dev/null | grep -q GNU; then
-          sed -i -E "/^$regex/d" "$LENS_DIR/index.md"
+          sed -i -E "/$regex/d" "$LENS_DIR/index.md"
         else
-          sed -i '' -E "/^$regex/d" "$LENS_DIR/index.md"
+          sed -i '' -E "/$regex/d" "$LENS_DIR/index.md"
         fi
       fi
     fi

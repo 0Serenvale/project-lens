@@ -29,7 +29,7 @@ fi
 CODE_FILES=$(echo "$CHANGED" | grep -E '\.(ts|tsx|js|jsx|py|go|rs|php|rb|java|cs|vue|svelte|sql)$' || true)
 # Filter against .lensignore
 if [[ -f "$CWD/.lensignore" ]]; then
-  while IFS= read -r pattern; do
+  while IFS= read -r pattern || [[ -n "$pattern" ]]; do
     [[ -z "$pattern" || "$pattern" == \#* ]] && continue
     regex=$(echo "$pattern" | sed 's/\./\\./g' | sed 's/\*/.*/g')
     if [[ -n "$regex" ]]; then
