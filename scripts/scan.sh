@@ -181,53 +181,189 @@ PROMPT_TEMPLATE="${PROMPT_TEMPLATE//\{\{RELATIVE_PATH\}\}/$RELATIVE_PATH}"
 PROMPT_TEMPLATE="${PROMPT_TEMPLATE//\{\{LINE_COUNT\}\}/$LINE_COUNT}"
 PROMPT_TEMPLATE="${PROMPT_TEMPLATE//\{\{SCAN_DATE\}\}/$SCAN_DATE}"
 
-# ─── Call OpenRouter ──────────────────────────────────────────────────────────
-# FILE_CONTENT passed as --arg to jq so it is safely JSON-encoded.
-# The prompt template and file content are concatenated inside jq — no bash substitution on untrusted content.
-RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
-  -H "Authorization: Bearer $API_KEY" \
-  -H "Content-Type: application/json" \
-  -H "HTTP-Referer: https://github.com/0Serenvale/project-lens" \
-  -H "X-Title: project-lens" \
-  -d "$(jq -n \
-    --arg model "$MODEL" \
-    --arg prompt "$PROMPT_TEMPLATE" \
-    --arg fileContent "$FILE_CONTENT" \
-    '{
-      model: $model,
-      max_tokens: 3000,
-      temperature: 0.1,
-      messages: [
-        {
-          role: "system",
-          content: "You are a code analysis engine. You produce structured documentation with zero vagueness. You never skip fields. You never use filler phrases. You flag uncertainty explicitly."
-        },
-        {
-          role: "user",
-          content: ($prompt + "\n\n```\n" + $fileContent + "\n```")
-        }
-      ]
-    }'
-  )")
+# ─── Chunking & Calling OpenRouter ───────────────────────────────────────────
+# If the file is huge, LLMs skim. We enforce a max 450 lines per call.
+CHUNK_SIZE=450
+DOC=""
+ERROR=""
+RATE_LIMITED=false
+
+if (( LINE_COUNT <= CHUNK_SIZE )); then
+  # Process single chunk normally
+  RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
+    -H "Authorization: Bearer $API_KEY" \
+    -H "Content-Type: application/json" \
+    -H "HTTP-Referer: https://github.com/0Serenvale/project-lens" \
+    -H "X-Title: project-lens" \
+    -d "$(jq -n \
+      --arg model "$MODEL" \
+      --arg prompt "$PROMPT_TEMPLATE" \
+      --arg fileContent "$FILE_CONTENT" \
+      '{
+        model: $model,
+        max_tokens: 3000,
+        temperature: 0.1,
+        messages: [
+          {
+            role: "system",
+            content: "You are a code analysis engine. You produce structured documentation with zero vagueness. You never skip fields. You never use filler phrases. You flag uncertainty explicitly."
+          },
+          {
+            role: "user",
+            content: ($prompt + "
+
+```
+" + $fileContent + "
+```")
+          }
+        ]
+      }'
+    )")
+
+    DOC=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+    if [[ -z "$DOC" ]]; then
+      ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
+      if echo "$ERROR" | grep -qi "rate limit\|per.day\|quota\|limit exceeded"; then
+        RATE_LIMITED=true
+      fi
+    fi
+else
+  # Large file — chunk it
+  echo "scan.sh: Large file detected ($LINE_COUNT lines). Chunking to prevent AI skimming..." >&2
+
+  # Split the file into chunks
+  TMP_DIR=$(mktemp -d)
+  split -l $CHUNK_SIZE "$FILE_PATH" "$TMP_DIR/chunk_"
+
+  TOTAL_CHUNKS=$(ls -1 "$TMP_DIR/chunk_"* | wc -l | tr -d ' ')
+  CURRENT_CHUNK=1
+
+  ALL_DOCS=""
+
+  for chunk_file in "$TMP_DIR/chunk_"*; do
+    CHUNK_CONTENT=$(cat "$chunk_file")
+    CHUNK_LINES=$(wc -l < "$chunk_file" | tr -d ' ')
+
+    CHUNK_PROMPT="${PROMPT_TEMPLATE}
+
+[NOTE: This is PART $CURRENT_CHUNK OF $TOTAL_CHUNKS for the file. Only document what you see in this specific chunk.]"
+
+    echo "scan.sh: Analyzing chunk $CURRENT_CHUNK/$TOTAL_CHUNKS ($CHUNK_LINES lines)..." >&2
+
+    RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
+      -H "Authorization: Bearer $API_KEY" \
+      -H "Content-Type: application/json" \
+      -H "HTTP-Referer: https://github.com/0Serenvale/project-lens" \
+      -H "X-Title: project-lens" \
+      -d "$(jq -n \
+        --arg model "$MODEL" \
+        --arg prompt "$CHUNK_PROMPT" \
+        --arg fileContent "$CHUNK_CONTENT" \
+        '{
+          model: $model,
+          max_tokens: 3000,
+          temperature: 0.1,
+          messages: [
+            {
+              role: "system",
+              content: "You are a code analysis engine. You produce structured documentation with zero vagueness. You never skip fields. You never use filler phrases. You flag uncertainty explicitly."
+            },
+            {
+              role: "user",
+              content: ($prompt + "
+
+```
+" + $fileContent + "
+```")
+            }
+          ]
+        }'
+      )")
+
+      CHUNK_DOC=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+      if [[ -z "$CHUNK_DOC" ]]; then
+        ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
+        if echo "$ERROR" | grep -qi "rate limit\|per.day\|quota\|limit exceeded"; then
+          RATE_LIMITED=true
+          break
+        fi
+        echo "scan.sh: Warning: Failed to process chunk $CURRENT_CHUNK: $ERROR" >&2
+      else
+        ALL_DOCS="$ALL_DOCS
+
+---
+### Chunk $CURRENT_CHUNK
+$CHUNK_DOC"
+      fi
+
+      CURRENT_CHUNK=$((CURRENT_CHUNK + 1))
+      sleep 1 # small delay between chunk calls
+  done
+
+  rm -rf "$TMP_DIR"
+
+  if [[ "$RATE_LIMITED" == false ]]; then
+    # Final summarization pass to merge the chunks
+    echo "scan.sh: Merging $TOTAL_CHUNKS chunks into final document..." >&2
+    MERGE_PROMPT="You are a senior engineer summarizing a file analysis.
+I had to split a large file into multiple chunks and analyze them individually.
+Here are the analysis reports for each chunk.
+
+Combine them into ONE unified, coherent feature document following the exact same required markdown structure (Purpose, Exports, Imports, Data Flow, Gotchas, Status, etc.).
+Do NOT output chunk headers. Synthesize the data flow end-to-end.
+
+REPORTS:
+$ALL_DOCS"
+
+    RESPONSE=$(curl -s -X POST "https://openrouter.ai/api/v1/chat/completions" \
+      -H "Authorization: Bearer $API_KEY" \
+      -H "Content-Type: application/json" \
+      -H "HTTP-Referer: https://github.com/0Serenvale/project-lens" \
+      -H "X-Title: project-lens" \
+      -d "$(jq -n \
+        --arg model "$MODEL" \
+        --arg prompt "$MERGE_PROMPT" \
+        '{
+          model: $model,
+          max_tokens: 4000,
+          temperature: 0.1,
+          messages: [
+            {
+              role: "system",
+              content: "You are a code analysis engine. You produce structured documentation with zero vagueness. You never skip fields. You never use filler phrases. You flag uncertainty explicitly."
+            },
+            {
+              role: "user",
+              content: $prompt
+            }
+          ]
+        }'
+      )")
+
+    DOC=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+    if [[ -z "$DOC" ]]; then
+      ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
+      if echo "$ERROR" | grep -qi "rate limit\|per.day\|quota\|limit exceeded"; then
+        RATE_LIMITED=true
+      fi
+    fi
+  fi
+fi
 
 # ─── Extract and validate response ───────────────────────────────────────────
-DOC=$(echo "$RESPONSE" | jq -r '.choices[0].message.content // empty')
+if [[ "$RATE_LIMITED" == true ]]; then
+  echo "" >&2
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+  echo "[PROJECT LENS] Rate limit reached for model: $MODEL" >&2
+  echo "[PROJECT LENS] Stopped at: $RELATIVE_PATH" >&2
+  echo "[PROJECT LENS] Scanned so far: $(ls \"$LENS_DIR/features/\" 2>/dev/null | wc -l | tr -d ' ') files" >&2
+  echo "[PROJECT LENS] Run /lens:init again when the limit resets (usually midnight UTC)." >&2
+  echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
+  # Exiting with code 2
+  exit 2
+fi
 
 if [[ -z "$DOC" ]]; then
-  ERROR=$(echo "$RESPONSE" | jq -r '.error.message // "Unknown error"')
-
-  # Rate limit — stop everything, don't waste more calls
-  if echo "$ERROR" | grep -qi "rate limit\|per.day\|quota\|limit exceeded"; then
-    echo "" >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-    echo "[PROJECT LENS] Rate limit reached for model: $MODEL" >&2
-    echo "[PROJECT LENS] Stopped at: $RELATIVE_PATH" >&2
-    echo "[PROJECT LENS] Scanned so far: $(ls "$LENS_DIR/features/" 2>/dev/null | wc -l | tr -d ' ') files" >&2
-    echo "[PROJECT LENS] Run /lens:init again when the limit resets (usually midnight UTC)." >&2
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━" >&2
-    exit 2  # Exit code 2 = rate limit signal to init.sh
-  fi
-
   echo "scan.sh: OpenRouter error for $RELATIVE_PATH: $ERROR" >&2
   exit 1
 fi
