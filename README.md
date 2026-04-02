@@ -92,15 +92,6 @@ For large projects (>80 files), it scans entry points and key directories first.
 
 ---
 
-## Ignoring Files (.lensignore)
-
-To prevent `project-lens` from scanning generic, vendored, or generated code (like shadcn components), create a `.lensignore` file in the root of your project. The syntax is simply strings to match against the file path:
-
-```text
-# .lensignore example
-components/ui/
-```
-
 ## Recommended Workflow
 
 ```
