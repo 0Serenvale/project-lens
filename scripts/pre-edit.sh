@@ -57,12 +57,12 @@ if [[ -n "$LENS_DIR" && -d "$LENS_DIR/features" ]]; then
   if [[ -z "$FEATURE_DOC" ]]; then
     BEST_MATCH=""
     BEST_SCORE=0
-    RELATIVE_LOWER="${RELATIVE_PATH,,}"
+    RELATIVE_LOWER=$(echo "$RELATIVE_PATH" | tr '[:upper:]' '[:lower:]')
     for doc in "$LENS_DIR/features"/*.md; do
       [[ -f "$doc" ]] || continue
       DOC_NAME="${doc##*/}"
       DOC_NAME="${DOC_NAME%.md}"
-      DOC_LOWER="${DOC_NAME,,}"
+      DOC_LOWER=$(echo "$DOC_NAME" | tr '[:upper:]' '[:lower:]')
       if [[ "$RELATIVE_LOWER" == *"$DOC_LOWER"* ]]; then
         SCORE=${#DOC_NAME}
         if (( SCORE > BEST_SCORE )); then

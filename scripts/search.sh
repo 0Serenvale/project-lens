@@ -33,19 +33,25 @@ fi
 
 # ─── Step 1: grep search — free, no LLM needed ───────────────────────────────
 # Use bash array to safely handle paths with spaces
-declare -A SEEN_DOCS
 MATCHED_FILES=()
 
+# Helper function to check if array contains element
+contains_element() {
+  local e match="$1"
+  shift
+  for e; do [[ "$e" == "$match" ]] && return 0; done
+  return 1
+}
+
 # Match by feature slug name
-TOPIC_LOWER="${TOPIC,,}"
+TOPIC_LOWER=$(echo "$TOPIC" | tr '[:upper:]' '[:lower:]')
 for doc in "$LENS_DIR/features"/*.md; do
   [[ -f "$doc" ]] || continue
   SLUG="${doc##*/}"
   SLUG="${SLUG%.md}"
-  SLUG_LOWER="${SLUG,,}"
+  SLUG_LOWER=$(echo "$SLUG" | tr '[:upper:]' '[:lower:]')
   if [[ "$SLUG_LOWER" == *"$TOPIC_LOWER"* ]]; then
     MATCHED_FILES+=("$doc")
-    SEEN_DOCS["$doc"]=1
   fi
 done
 
@@ -53,9 +59,8 @@ done
 if [[ ${#MATCHED_FILES[@]} -eq 0 ]]; then
   while IFS= read -r match; do
     [[ -z "$match" ]] && continue
-    if [[ -z "${SEEN_DOCS[$match]+_}" ]]; then
+    if ! contains_element "$match" "${MATCHED_FILES[@]}"; then
       MATCHED_FILES+=("$match")
-      SEEN_DOCS["$match"]=1
     fi
   done < <(grep -ril "$TOPIC" "$LENS_DIR/features/" 2>/dev/null || true)
 fi
@@ -65,9 +70,8 @@ if [[ -f "$LENS_DIR/index.md" ]]; then
   while IFS= read -r slug; do
     [[ -z "$slug" ]] && continue
     doc="$LENS_DIR/features/$slug.md"
-    if [[ -f "$doc" && -z "${SEEN_DOCS[$doc]+_}" ]]; then
+    if [[ -f "$doc" ]] && ! contains_element "$doc" "${MATCHED_FILES[@]}"; then
       MATCHED_FILES+=("$doc")
-      SEEN_DOCS["$doc"]=1
     fi
   done < <(grep -i "$TOPIC" "$LENS_DIR/index.md" 2>/dev/null | head -5 | sed 's/.*→ *//' | tr -d ' ')
 fi
