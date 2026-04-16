@@ -47,9 +47,9 @@ FEATURE_DOC=""
 if [[ -n "$LENS_DIR" && -d "$LENS_DIR/features" ]]; then
   # Check index.md first — exact file→feature mapping
   if [[ -f "$LENS_DIR/index.md" ]]; then
-    FEATURE_SLUG=$(grep "^$RELATIVE_PATH →" "$LENS_DIR/index.md" 2>/dev/null | head -1 | sed 's/.*→ *//' | tr -d ' ')
+    FEATURE_SLUG=$(grep -e "^$RELATIVE_PATH →" -- "$LENS_DIR/index.md" 2>/dev/null | head -n 1 | sed 's/.*→ *//' | tr -d ' ')
     if [[ -n "$FEATURE_SLUG" && -f "$LENS_DIR/features/$FEATURE_SLUG.md" ]]; then
-      FEATURE_DOC=$(cat "$LENS_DIR/features/$FEATURE_SLUG.md")
+      FEATURE_DOC=$(cat -- "$LENS_DIR/features/$FEATURE_SLUG.md")
     fi
   fi
 
@@ -71,24 +71,24 @@ if [[ -n "$LENS_DIR" && -d "$LENS_DIR/features" ]]; then
         fi
       fi
     done
-    [[ -n "$BEST_MATCH" ]] && FEATURE_DOC=$(cat "$BEST_MATCH")
+    [[ -n "$BEST_MATCH" ]] && FEATURE_DOC=$(cat -- "$BEST_MATCH")
   fi
 fi
 
 # ─── Build file content section (token-aware) ─────────────────────────────────
 if (( LINE_COUNT <= 200 )); then
   FILE_SECTION="## Full File Content ($LINE_COUNT lines)
-$(cat "$FILE_PATH")"
+$(cat -- "$FILE_PATH")"
 else
   # Large file: inject first 80 + last 80 lines with a note
   FILE_SECTION="## File Content — $LINE_COUNT lines (showing first 80 + last 80)
 ⚠ File exceeds 200 lines. Run /lens:scan on this file for a complete feature doc.
 
 ### Lines 1–80
-$(head -80 "$FILE_PATH")
+$(head -n 80 -- "$FILE_PATH")
 
 ### Lines $((LINE_COUNT - 79))–$LINE_COUNT
-$(tail -80 "$FILE_PATH")"
+$(tail -n 80 -- "$FILE_PATH")"
 fi
 
 # ─── Build output ─────────────────────────────────────────────────────────────

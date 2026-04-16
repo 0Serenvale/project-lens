@@ -214,8 +214,8 @@ EOF
 # ─── Auto-add .lens/ to .gitignore ───────────────────────────────────────────
 GITIGNORE="$PROJECT_ROOT/.gitignore"
 if [[ -f "$GITIGNORE" ]] || git -C "$PROJECT_ROOT" rev-parse --is-inside-work-tree &>/dev/null 2>&1; then
-  touch "$GITIGNORE"
-  if ! grep -qx ".lens/" "$GITIGNORE" 2>/dev/null; then
+  touch -- "$GITIGNORE"
+  if ! grep -qx -e ".lens/" -- "$GITIGNORE" 2>/dev/null; then
     echo "" >> "$GITIGNORE"
     echo "# project-lens generated docs" >> "$GITIGNORE"
     echo ".lens/" >> "$GITIGNORE"
