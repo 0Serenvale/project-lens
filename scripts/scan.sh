@@ -46,13 +46,13 @@ SCAN_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
 # src/collections/league/Matches.ts      → matches
 # src/components/search/SearchBar.tsx    → search-bar
 # src/app/(frontend)/page.tsx            → page-frontend
-FEATURE_SLUG=$(echo "$RELATIVE_PATH" \
-  | sed 's|.*/||' \
-  | sed 's/\.[^.]*$//' \
-  | tr '[:upper:]' '[:lower:]' \
-  | sed 's/[^a-z0-9]/-/g' \
-  | sed 's/--*/-/g' \
-  | sed 's/^-//;s/-$//')
+FEATURE_SLUG="${RELATIVE_PATH##*/}"
+FEATURE_SLUG="${FEATURE_SLUG%.*}"
+FEATURE_SLUG="${FEATURE_SLUG,,}"
+FEATURE_SLUG="${FEATURE_SLUG//[^a-z0-9]/-}"
+while [[ $FEATURE_SLUG == *--* ]]; do FEATURE_SLUG="${FEATURE_SLUG//--/-}"; done
+FEATURE_SLUG="${FEATURE_SLUG#-}"
+FEATURE_SLUG="${FEATURE_SLUG%-}"
 
 # ─── Hardened prompt ──────────────────────────────────────────────────────────
 # This prompt is engineered to push every shortcut, assumption, and lazy summary

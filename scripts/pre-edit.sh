@@ -47,7 +47,12 @@ FEATURE_DOC=""
 if [[ -n "$LENS_DIR" && -d "$LENS_DIR/features" ]]; then
   # Check index.md first — exact file→feature mapping
   if [[ -f "$LENS_DIR/index.md" ]]; then
-    FEATURE_SLUG=$(grep "^$RELATIVE_PATH →" "$LENS_DIR/index.md" 2>/dev/null | head -1 | sed 's/.*→ *//' | tr -d ' ')
+    FEATURE_SLUG=$(grep "^$RELATIVE_PATH →" "$LENS_DIR/index.md" 2>/dev/null | head -1 || true)
+    if [[ -n "$FEATURE_SLUG" ]]; then
+      FEATURE_SLUG="${FEATURE_SLUG#*→ }"
+      FEATURE_SLUG="${FEATURE_SLUG// /}"
+    fi
+
     if [[ -n "$FEATURE_SLUG" && -f "$LENS_DIR/features/$FEATURE_SLUG.md" ]]; then
       FEATURE_DOC=$(cat "$LENS_DIR/features/$FEATURE_SLUG.md")
     fi

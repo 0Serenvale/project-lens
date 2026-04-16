@@ -91,7 +91,14 @@ while IFS= read -r file; do
 
   # Skip already-scanned files — allows resuming after rate limit
   RELATIVE="${file#$PROJECT_ROOT/}"
-  SLUG=$(echo "$RELATIVE" | sed 's|.*/||' | sed 's/\.[^.]*$//' | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | sed 's/^-//;s/-$//')
+  SLUG="${RELATIVE##*/}"
+  SLUG="${SLUG%.*}"
+  SLUG="${SLUG,,}"
+  SLUG="${SLUG//[^a-z0-9]/-}"
+  while [[ $SLUG == *--* ]]; do SLUG="${SLUG//--/-}"; done
+  SLUG="${SLUG#-}"
+  SLUG="${SLUG%-}"
+
   if [[ -f "$LENS_DIR/features/$SLUG.md" ]]; then
     echo "[PROJECT LENS] [skip] Already scanned: $RELATIVE"
     COUNT=$((COUNT + 1))
@@ -127,7 +134,14 @@ fi
 # Generate project summary doc
 echo "[PROJECT LENS] Generating project overview..."
 
-FILE_LIST=$(ls "$LENS_DIR/features/" 2>/dev/null | sed 's/\.md$//' | sort | tr '\n' ', ')
+FILE_LIST=""
+for feat in "$LENS_DIR/features"/*.md; do
+  [[ -f "$feat" ]] || continue
+  name="${feat##*/}"
+  FILE_LIST="${FILE_LIST}${name%.md}, "
+done
+FILE_LIST="${FILE_LIST%, }"
+
 FILE_TREE=$(echo "$CODE_FILES" | head -50 | sed "s|$PROJECT_ROOT/||" | sort)
 
 SUMMARY_PROMPT="You are a code analysis engine producing a project overview document.

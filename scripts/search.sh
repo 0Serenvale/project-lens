@@ -62,19 +62,27 @@ fi
 
 # Also check index for direct file→feature mapping
 if [[ -f "$LENS_DIR/index.md" ]]; then
-  while IFS= read -r slug; do
-    [[ -z "$slug" ]] && continue
+  while IFS= read -r line; do
+    [[ -z "$line" ]] && continue
+    slug="${line#*→ }"
+    slug="${slug// /}"
     doc="$LENS_DIR/features/$slug.md"
     if [[ -f "$doc" && -z "${SEEN_DOCS[$doc]+_}" ]]; then
       MATCHED_FILES+=("$doc")
       SEEN_DOCS["$doc"]=1
     fi
-  done < <(grep -i "$TOPIC" "$LENS_DIR/index.md" 2>/dev/null | head -5 | sed 's/.*→ *//' | tr -d ' ')
+  done < <(grep -i "$TOPIC" "$LENS_DIR/index.md" 2>/dev/null | head -5)
 fi
 
 if [[ ${#MATCHED_FILES[@]} -eq 0 ]]; then
   echo "⚠ No .lens docs found for topic: '$TOPIC'"
-  echo "  Available features: $(ls "$LENS_DIR/features/" | sed 's/\.md//' | tr '\n' ', ')"
+  FEAT_LIST=""
+  for feat in "$LENS_DIR/features"/*.md; do
+    [[ -f "$feat" ]] || continue
+    name="${feat##*/}"
+    FEAT_LIST="${FEAT_LIST}${name%.md}, "
+  done
+  echo "  Available features: ${FEAT_LIST%, }"
   echo "  Run: /lens:scan <file> to generate a doc for a specific file."
   exit 0
 fi
