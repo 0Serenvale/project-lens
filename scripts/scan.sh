@@ -38,7 +38,7 @@ else
 fi
 
 RELATIVE_PATH="${FILE_PATH#$PROJECT_ROOT/}"
-FILE_CONTENT=$(cat "$FILE_PATH")
+FILE_CONTENT=$(cat -- "$FILE_PATH")
 LINE_COUNT=$(wc -l < "$FILE_PATH")
 SCAN_DATE=$(date -u +"%Y-%m-%d %H:%M UTC")
 
@@ -262,10 +262,10 @@ INDEX="$LENS_DIR/index.md"
 touch "$INDEX"
 
 TMP=$(mktemp)
-grep -v "^$RELATIVE_PATH" "$INDEX" > "$TMP" 2>/dev/null || true
+grep -v -e "^$RELATIVE_PATH" -- "$INDEX" > "$TMP" 2>/dev/null || true
 echo "$RELATIVE_PATH → $FEATURE_SLUG" >> "$TMP"
 sort "$TMP" > "$INDEX"
-rm "$TMP"
+rm -- "$TMP"
 
 echo "scan.sh: ✓ $RELATIVE_PATH → $DOC_PATH"
 exit 0

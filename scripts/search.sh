@@ -57,7 +57,7 @@ if [[ ${#MATCHED_FILES[@]} -eq 0 ]]; then
       MATCHED_FILES+=("$match")
       SEEN_DOCS["$match"]=1
     fi
-  done < <(grep -ril "$TOPIC" "$LENS_DIR/features/" 2>/dev/null || true)
+  done < <(grep -ril -e "$TOPIC" -- "$LENS_DIR/features/" 2>/dev/null || true)
 fi
 
 # Also check index for direct file→feature mapping
@@ -69,7 +69,7 @@ if [[ -f "$LENS_DIR/index.md" ]]; then
       MATCHED_FILES+=("$doc")
       SEEN_DOCS["$doc"]=1
     fi
-  done < <(grep -i "$TOPIC" "$LENS_DIR/index.md" 2>/dev/null | head -5 | sed 's/.*→ *//' | tr -d ' ')
+  done < <(grep -i -e "$TOPIC" -- "$LENS_DIR/index.md" 2>/dev/null | head -n 5 | sed 's/.*→ *//' | tr -d ' ')
 fi
 
 if [[ ${#MATCHED_FILES[@]} -eq 0 ]]; then
@@ -91,7 +91,7 @@ for doc in "${MATCHED_FILES[@]}"; do
   DOCS_CONTENT="$DOCS_CONTENT
 
 === FEATURE DOC: $SLUG ===
-$(cat "$doc")
+$(cat -- "$doc")
 "
 done
 
